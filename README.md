@@ -5,7 +5,7 @@ connect-preprocess
 
 Installation
 ------------
-    npm install connect
+    npm install connect-preprocess
 
 Basic Use
 ---------
