@@ -16,7 +16,7 @@ module.exports = function( options ) {
     _accepts: function( req , res ) {
       var content_type = res._headers ? (res._headers['content-type'] || '').split( ';' )[0] : null;
       var ext = content_type ? mime.extension( content_type ) : req.url.match( /(\.\w+)\??.*$/ );
-      return this.accept.indexOf( ext ) >= 0;
+      return res.statusCode == 200 && this.accept.indexOf( ext ) >= 0;
     }
   });
 
@@ -45,8 +45,9 @@ module.exports = function( options ) {
     res.writeHead = function(){};
 
     res.write = function( string , encoding ) {
+      encoding = encoding || 'utf-8';
       if (string !== undefined) {
-        var body = string instanceof Buffer ? string.toString( encoding ) : string;
+        var body = (Buffer.isBuffer( string ) ? string.toString( encoding ) : string);
         if (res._headers && $preprocessor._accepts( req , res )) {
           res.push( body );
         }
@@ -58,13 +59,20 @@ module.exports = function( options ) {
     };
 
     res.end = function( string , encoding ) {
-      var body = $preprocessor.engine( res.data );
-      if (res.data !== undefined && !res._header) {
-        res.setHeader( 'Content-Length' , Buffer.byteLength( body , encoding ));
+      encoding = encoding || 'utf-8';
+      if (res.data && $preprocessor._accepts( req , res )) {
+        var body = $preprocessor.engine( res.data );
+        if (res.data !== undefined && !res._header) {
+          res.setHeader( 'Content-Length' , Buffer.byteLength( body , encoding ));
+        }
+        res.data = '';
+        restore();
+        res.end( body , encoding );
       }
-      res.data = '';
-      restore();
-      res.end( body , encoding );
+      else {
+        restore();
+        next();
+      }
     };
 
     next();
