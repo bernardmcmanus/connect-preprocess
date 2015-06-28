@@ -59,20 +59,16 @@ module.exports = function( options ) {
     };
 
     res.end = function( string , encoding ) {
+      restore();
       encoding = encoding || 'utf-8';
       if (res.data && $preprocessor._accepts( req , res )) {
-        var body = $preprocessor.engine( res.data );
+        string = $preprocessor.engine( res.data );
         if (res.data !== undefined && !res._header) {
-          res.setHeader( 'Content-Length' , Buffer.byteLength( body , encoding ));
+          res.setHeader( 'Content-Length' , Buffer.byteLength( string , encoding ));
         }
         res.data = '';
-        restore();
-        res.end( body , encoding );
       }
-      else {
-        restore();
-        next();
-      }
+      res.end( string , encoding );
     };
 
     next();
