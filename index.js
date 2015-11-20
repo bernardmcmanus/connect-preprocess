@@ -1,76 +1,80 @@
-module.exports = function( options ) {
-
+module.exports = function( options ){
   'use strict';
 
+  var Q = require( 'q' );
+  var url = require( 'url' );
   var mime = require( 'mime' );
+  var fs = require( 'fs-extra' );
   var extend = require( 'extend' );
+  var resolvePath = require( 'resolve-path' );
 
-  function $Defaults() {
-    return {
+  var $preprocessor = (function(){
+    var defaults = {
+      root: process.cwd(),
+      index: 'index.html',
       accept: [ 'html' , 'css' , 'js' ],
       engine: function( string ) { return string }
     };
-  }
-  
-  var $preprocessor = extend( $Defaults() , options , {
-    _accepts: function( req , res ) {
-      var content_type = res._headers ? (res._headers['content-type'] || '').split( ';' )[0] : null;
-      var ext = content_type ? mime.extension( content_type ) : req.url.match( /(\.\w+)\??.*$/ );
-      return res.statusCode == 200 && this.accept.indexOf( ext ) >= 0;
-    }
-  });
-
-  return function( req , res , next ) {
-
-    if (res.__preprocess) {
-      return next();
-    }
-
-    res.__preprocess = true;
-
-    var writeHead = res.writeHead;
-    var write = res.write;
-    var end = res.end;
-
-    function restore() {
-      res.writeHead = writeHead;
-      res.write = write;
-      res.end = end;
-    }
-
-    res.push = function( chunk ) {
-      res.data = (res.data || '') + chunk;
-    };
-
-    res.writeHead = function(){};
-
-    res.write = function( string , encoding ) {
-      encoding = encoding || 'utf-8';
-      if (string !== undefined) {
-        var body = (Buffer.isBuffer( string ) ? string.toString( encoding ) : string);
-        if (res._headers && $preprocessor._accepts( req , res )) {
-          res.push( body );
-        }
-        else {
-          restore();
-          return write.call( res , string , encoding );
-        }
+    return extend( defaults , options , {
+      _accepts: function( fpath ){
+        var match = fpath.match( /\.(\w+)$/ );
+        return match ? $preprocessor.accept.indexOf( match[1] ) >= 0 : false;
       }
-    };
+    });
+  }());
 
-    res.end = function( string , encoding ) {
-      restore();
-      encoding = encoding || 'utf-8';
-      if (res.data && $preprocessor._accepts( req , res )) {
-        string = $preprocessor.engine( res.data );
-        if (res.data !== undefined && !res._header) {
-          res.setHeader( 'Content-Length' , Buffer.byteLength( string , encoding ));
-        }
-        res.data = '';
+  return function middleware( req , res , next ){
+    var pathname = url.parse( req.url ).pathname;
+    var fpath = resolvePath( $preprocessor.root , pathname.substr( 1 ));
+    Q.fcall(function(){
+      if (req.method != 'GET') {
+        return Q.reject();
       }
-      res.end( string , encoding );
-    };
-
-    next();
+    })
+    .then(function(){
+      return Q.fcall(function getStats(){
+        return Q.promise(function( resolve , reject ){
+          fs.stat( fpath , function( err , stats ){
+            return err ? reject() : resolve( stats );
+          });
+        })
+        .then(function( stats ){
+          if (stats.isDirectory() && $preprocessor.index) {
+            fpath = resolvePath( fpath , $preprocessor.index );
+            return getStats();
+          }
+          return stats;
+        });
+      })
+      .then(function( stats ){
+        if (stats.isFile() && $preprocessor._accepts( fpath )) {
+          return Q.promise(function( resolve , reject ){
+            fs.readFile( fpath , 'utf-8' , function( err , content ){
+              return err ? reject( err ) : resolve( content );
+            });
+          });
+        }
+        return Q.reject();
+      });
+    })
+    .then(function( content ){
+      var info = {
+        root: fpath.substr( 0 , fpath.indexOf( pathname )),
+        pathname: fpath.substr(fpath.indexOf( pathname )),
+        mime: mime.lookup( fpath )
+      };
+      return Q.resolve().then(function(){
+        return $preprocessor.engine( content , info );
+      })
+      .then(function( processed ){
+        res.setHeader( 'Content-Type' , info.mime );
+        res.setHeader( 'Content-Length' , Buffer.byteLength( processed ));
+        return processed;
+      });
+    })
+    .then(function( content ){
+      res.end( content );
+    })
+    .fail( next );
   };
 };
