@@ -5,7 +5,7 @@ module.exports = function( options ){
   var url = require( 'url' );
   var mime = require( 'mime' );
   var fs = require( 'fs-extra' );
-  var extend = require( 'extend' );
+  var _ = require( 'lodash' );
   var resolvePath = require( 'resolve-path' );
 
   var $preprocessor = (function(){
@@ -15,7 +15,7 @@ module.exports = function( options ){
       accept: [ 'html' , 'css' , 'js' ],
       engine: function( string ) { return string }
     };
-    return extend( defaults , options , {
+    return _.extend( defaults , options , {
       _accepts: function( fpath ){
         var match = fpath.match( /\.(\w+)$/ );
         return match ? $preprocessor.accept.indexOf( match[1] ) >= 0 : false;
@@ -58,16 +58,16 @@ module.exports = function( options ){
       });
     })
     .then(function( content ){
-      var info = {
+      var $req = _.extend(Object.create( req ), {
         root: fpath.substr( 0 , fpath.indexOf( pathname )),
         pathname: fpath.substr(fpath.indexOf( pathname )),
         mime: mime.lookup( fpath )
-      };
+      });
       return Q.resolve().then(function(){
-        return $preprocessor.engine( content , info );
+        return $preprocessor.engine( content , $req );
       })
       .then(function( processed ){
-        res.setHeader( 'Content-Type' , info.mime );
+        res.setHeader( 'Content-Type' , $req.mime );
         res.setHeader( 'Content-Length' , Buffer.byteLength( processed ));
         return processed;
       });
